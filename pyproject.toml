@@ -1,0 +1,52 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agentic-simulation"
+version = "0.1.0"
+description = "A deterministic world foundation for multi-agent artificial-life experiments"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.116,<1",
+  "numpy>=2.1,<3",
+  "pydantic>=2.11,<3",
+  "pyyaml>=6.0,<7",
+  "uvicorn>=0.35,<1",
+  "websockets>=15,<16",
+]
+
+[dependency-groups]
+dev = [
+  "httpx>=0.28,<1",
+  "mypy>=1.16,<2",
+  "pytest>=8.4,<9",
+  "ruff>=0.12,<1",
+  "types-pyyaml>=6.0,<7",
+]
+
+[project.scripts]
+alife = "agentic_simulation.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agentic_simulation"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "tests", "experiments", "README.md", "pyproject.toml"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["agentic_simulation"]

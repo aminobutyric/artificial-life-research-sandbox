@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>World Observatory</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header>
+        <div>
+          <p class="eyebrow">Agentic Simulation / V1</p>
+          <h1>World Observatory</h1>
+        </div>
+        <div class="connection"><span id="connection-dot"></span><span id="connection">Connecting</span></div>
+      </header>
+
+      <section class="workspace">
+        <div class="map-panel">
+          <div class="toolbar">
+            <div class="controls">
+              <button id="play">Play</button>
+              <button id="pause" class="secondary">Pause</button>
+              <button id="step" class="secondary">Step</button>
+            </div>
+            <label>
+              Layer
+              <select id="layer">
+                <option value="terrain">Terrain</option>
+                <option value="elevation">Elevation</option>
+                <option value="temperature">Temperature</option>
+                <option value="moisture">Moisture</option>
+                <option value="fertility">Fertility</option>
+              </select>
+            </label>
+            <label class="toggle"><input id="resources" type="checkbox" checked> Resources</label>
+          </div>
+          <div class="canvas-wrap">
+            <canvas id="world" aria-label="World map"></canvas>
+            <div id="hover" class="hover-card hidden"></div>
+          </div>
+          <div id="legend" class="legend"></div>
+        </div>
+
+        <aside>
+          <section class="card headline-stats">
+            <div><span>Tick</span><strong id="tick">0</strong></div>
+            <div><span>World</span><strong id="dimensions">—</strong></div>
+            <div><span>Temperature</span><strong id="temperature-range">—</strong></div>
+          </section>
+
+          <section class="card">
+            <h2>Resources</h2>
+            <div class="resource-stat food"><span>Food</span><strong id="food-total">—</strong></div>
+            <div class="resource-stat water"><span>Water</span><strong id="water-total">—</strong></div>
+            <p class="muted"><span id="resource-nodes">0</span> resource nodes</p>
+          </section>
+
+          <section class="card">
+            <h2>Terrain composition</h2>
+            <div id="terrain-bars" class="terrain-bars"></div>
+          </section>
+
+          <section class="card regenerate">
+            <h2>Generate world</h2>
+            <label>Seed <input id="seed" type="number" min="0" value="42"></label>
+            <button id="regenerate">Regenerate</button>
+            <p class="muted">The same seed and configuration reproduce the same world.</p>
+          </section>
+
+          <section class="card inspector">
+            <h2>Cell inspector</h2>
+            <div id="cell-details" class="muted">Move over the map to inspect a cell.</div>
+          </section>
+        </aside>
+      </section>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

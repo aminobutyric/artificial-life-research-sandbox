@@ -1,0 +1,32 @@
+world:
+  schema_version: 1
+  seed: 42
+  width: 100
+  height: 100
+  day_length_ticks: 240
+  diurnal_temperature_amplitude: 4.0
+  generation:
+    smoothing_passes: 4
+    water_level: 0.28
+    mountain_level: 0.80
+    forest_moisture: 0.58
+  resources:
+    food:
+      initial_nodes: 250
+      capacity: 100.0
+      initial_fill_min: 0.45
+      initial_fill_max: 1.0
+      regeneration_rate: 0.15
+    water:
+      initial_nodes: 80
+      capacity: 160.0
+      initial_fill_min: 0.70
+      initial_fill_max: 1.0
+      regeneration_rate: 0.25
+
+visualization:
+  host: 127.0.0.1
+  port: 8000
+  ticks_per_second: 8.0
+  broadcast_every_ticks: 1
+
