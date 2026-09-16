@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 class StrictModel(BaseModel):
     """A frozen configuration model that rejects unknown fields."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, allow_inf_nan=False)
 
 
 class GenerationConfig(StrictModel):
@@ -55,7 +55,7 @@ class ResourcesConfig(StrictModel):
     )
     water: ResourceConfig = ResourceConfig(
         initial_nodes=80,
-        capacity=160.0,
+        capacity=120.0,
         initial_fill_min=0.70,
         regeneration_rate=0.25,
     )
@@ -74,6 +74,42 @@ class WorldConfig(StrictModel):
     resources: ResourcesConfig = ResourcesConfig()
 
 
+class AgentsConfig(StrictModel):
+    """Population and movement settings for the first agent phase."""
+
+    initial_population: int = Field(default=500, ge=0, le=1_000_000)
+    initial_health: float = Field(default=100.0, gt=0.0)
+    initial_energy: float = Field(default=100.0, gt=0.0)
+    vision_radius: float = Field(default=3.0, ge=1.0, le=50.0)
+    move_energy_cost: float = Field(default=0.1, ge=0.0)
+    idle_probability: float = Field(default=0.15, ge=0.0, le=1.0)
+    brain: Literal["random", "genetic"] = "random"
+
+
+class LifeConfig(StrictModel):
+    """Energy units per tick, food conversion, and asexual inheritance."""
+
+    enabled: bool = True
+    max_energy: float = Field(default=160.0, gt=0)
+    metabolism_cost: float = Field(default=0.15, ge=0)
+    food_energy: float = Field(default=5.0, gt=0)
+    bite_size: float = Field(default=4.0, gt=0)
+    max_age: int = Field(default=2000, ge=1)
+    reproduction_min_age: int = Field(default=50, ge=1)
+    reproduction_cooldown: int = Field(default=50, ge=1)
+    child_energy: float = Field(default=50.0, gt=0)
+    reproduction_cost: float = Field(default=10.0, ge=0)
+    max_population: int = Field(default=2000, ge=1)
+    mutation_probability: float = Field(default=0.10, ge=0, le=1)
+    mutation_sigma: float = Field(default=0.08, ge=0, le=1)
+
+    @model_validator(mode="after")
+    def check_energy(self) -> LifeConfig:
+        if self.child_energy + self.reproduction_cost >= self.max_energy:
+            raise ValueError("reproduction must leave energy for the parent")
+        return self
+
+
 class VisualizationConfig(StrictModel):
     host: str = "127.0.0.1"
     port: int = Field(default=8000, ge=1, le=65535)
@@ -83,7 +119,18 @@ class VisualizationConfig(StrictModel):
 
 class AppConfig(StrictModel):
     world: WorldConfig = WorldConfig()
+    agents: AgentsConfig = AgentsConfig()
+    life: LifeConfig = LifeConfig()
     visualization: VisualizationConfig = VisualizationConfig()
+
+    @model_validator(mode="after")
+    def check_population(self) -> AppConfig:
+        if self.life.enabled:
+            if self.agents.initial_population > self.life.max_population:
+                raise ValueError("initial population exceeds max_population")
+            if self.agents.initial_energy > self.life.max_energy:
+                raise ValueError("initial energy exceeds max_energy")
+        return self
 
 
 def load_config(path: str | Path) -> AppConfig:

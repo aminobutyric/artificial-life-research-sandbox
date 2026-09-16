@@ -3,6 +3,7 @@ import asyncio
 import httpx
 
 from agentic_simulation.config import (
+    AgentsConfig,
     AppConfig,
     ResourceConfig,
     ResourcesConfig,
@@ -20,7 +21,8 @@ def test_visualization_and_controls() -> None:
                 food=ResourceConfig(initial_nodes=3, capacity=10),
                 water=ResourceConfig(initial_nodes=2, capacity=10),
             ),
-        )
+        ),
+        agents=AgentsConfig(initial_population=12),
     )
 
     async def exercise_api() -> None:
@@ -32,9 +34,11 @@ def test_visualization_and_controls() -> None:
             initial = (await client.get("/api/world")).json()
             assert initial["tick"] == 0
             assert len(initial["layers"]["terrain"]) == 120
+            assert len(initial["agents"]) == 12
 
             stepped = (await client.post("/api/control/step")).json()
             assert stepped["tick"] == 1
+            assert len(stepped["agents"]) == 12
 
             regenerated = (
                 await client.post("/api/control/regenerate", json={"seed": 99})

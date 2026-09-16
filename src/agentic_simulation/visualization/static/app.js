@@ -72,6 +72,15 @@ function draw() {
       context.fill();
     }
   }
+  for (const agent of frame.agents || []) {
+    context.fillStyle = agent.generation > 0 ? "#f9dc73" : "#ff855c";
+    context.strokeStyle = "rgba(38, 20, 15, .8)";
+    context.lineWidth = Math.max(.6, scale * .08);
+    context.beginPath();
+    context.arc(x + (agent.x + .5) * scale, y + (agent.y + .5) * scale, Math.max(2.8, scale * .36), 0, Math.PI * 2);
+    context.fill();
+    context.stroke();
+  }
   updateLegend(layerName);
 }
 
@@ -88,7 +97,7 @@ function updateLegend(layerName) {
     const values = layerName === "temperature" ? [-10, 12.5, 35] : [0, .5, 1];
     legend.innerHTML = labels.map((name, index) => `<span><i class="swatch" style="background:rgb(${colorForScalar(layerName, values[index]).join(",")})"></i>${name}</span>`).join("");
   }
-  legend.innerHTML += '<span><i class="swatch" style="background:#d2eb5e"></i>Food</span><span><i class="swatch" style="background:#5cd3f4"></i>Water source</span>';
+  legend.innerHTML += '<span><i class="swatch" style="background:#d2eb5e"></i>Food</span><span><i class="swatch" style="background:#5cd3f4"></i>Water source</span><span><i class="swatch" style="background:#f47e54;border-radius:50%"></i>Agent</span>';
 }
 
 function updateDashboard() {
@@ -99,6 +108,16 @@ function updateDashboard() {
   document.querySelector("#food-total").textContent = Math.round(stats.resource_totals.food).toLocaleString();
   document.querySelector("#water-total").textContent = Math.round(stats.resource_totals.water).toLocaleString();
   document.querySelector("#resource-nodes").textContent = stats.resource_nodes;
+  const agentStats = frame.agent_statistics;
+  document.querySelector("#population").textContent = agentStats.population.toLocaleString();
+  document.querySelector("#average-energy").textContent = agentStats.average_energy.toFixed(1);
+  document.querySelector("#average-age").textContent = agentStats.average_age.toFixed(1);
+  document.querySelector("#brain-types").textContent = Object.entries(agentStats.brain_types).map(([name, count]) => `${count} ${name}`).join(" · ") || "No active brains";
+  document.querySelector("#births").textContent = agentStats.births ?? 0;
+  document.querySelector("#deaths").textContent = agentStats.deaths ?? 0;
+  document.querySelector("#generation").textContent = agentStats.max_generation ?? 0;
+  document.querySelector("#evolution-details").textContent = `Gene diversity: ${(agentStats.genetic_diversity ?? 0).toFixed(3)} · Orange: founders · Gold: offspring`;
+  document.querySelector("#population-status").textContent = agentStats.population === 0 ? "Population extinct. Regenerate to start a new experiment." : "";
   const total = frame.width * frame.height;
   document.querySelector("#terrain-bars").innerHTML = Object.entries(stats.terrain_cells).map(([name, count]) => {
     const percentage = count / total * 100;
@@ -115,6 +134,8 @@ function acceptMessage(message) {
     frame.temperature_offset = message.temperature_offset;
     frame.tick = message.tick;
     frame.statistics = { ...frame.statistics, ...message.statistics };
+    frame.agents = message.agents;
+    frame.agent_statistics = message.agent_statistics;
     for (let index = 0; index < frame.layers.temperature.length; index += 1) {
       frame.layers.temperature[index] += temperatureDelta;
     }
@@ -176,6 +197,7 @@ canvas.addEventListener("mousemove", event => {
   }
   const index = y * frame.width + x;
   const localResources = frame.resources.filter(item => item.x === x && item.y === y);
+  const localAgents = (frame.agents || []).filter(item => item.x === x && item.y === y);
   const values = {
     Position: `${x}, ${y}`,
     Terrain: terrainNames[frame.layers.terrain[index]],
@@ -184,6 +206,8 @@ canvas.addEventListener("mousemove", event => {
     Moisture: frame.layers.moisture[index].toFixed(3),
     Fertility: frame.layers.fertility[index].toFixed(3),
     Resources: localResources.length ? localResources.map(item => `${item.type} ${item.amount.toFixed(1)}`).join(", ") : "none",
+    Agents: localAgents.length ? localAgents.map(item => `#${item.id} · E ${item.energy.toFixed(1)} · age ${item.age} · gen ${item.generation ?? 0} · parent ${item.parent_id ?? "founder"}`).join(", ") : "none",
+    Genes: localAgents.length && localAgents[0].genome ? Object.entries(localAgents[0].genome).map(([name, value]) => `${name}: ${value.toFixed(2)}`).join("; ") : "—",
   };
   document.querySelector("#cell-details").innerHTML = `<dl>${Object.entries(values).map(([key, value]) => `<dt>${key}</dt><dd>${value}</dd>`).join("")}</dl>`;
   hover.textContent = `${x}, ${y} · ${values.Terrain}`;
@@ -198,6 +222,6 @@ fetch("/api/world")
     if (!response.ok) throw new Error(response.statusText);
     return response.json();
   })
-  .then(acceptMessage)
+  .then(message => { if (!frame) acceptMessage(message); })
   .catch(() => setConnection(false));
 connect();

@@ -52,6 +52,23 @@
           </section>
 
           <section class="card">
+            <h2>Agents</h2>
+            <div class="agent-metrics">
+              <div><span>Population</span><strong id="population">—</strong></div>
+              <div><span>Avg. energy</span><strong id="average-energy">—</strong></div>
+              <div><span>Avg. age</span><strong id="average-age">—</strong></div>
+            </div>
+            <p class="muted"><span id="brain-types">—</span></p>
+            <div class="agent-metrics">
+              <div><span>Births</span><strong id="births">0</strong></div>
+              <div><span>Deaths</span><strong id="deaths">0</strong></div>
+              <div><span>Top living gen.</span><strong id="generation">0</strong></div>
+            </div>
+            <p id="evolution-details" class="muted"></p>
+            <p id="population-status" class="muted" role="status"></p>
+          </section>
+
+          <section class="card">
             <h2>Resources</h2>
             <div class="resource-stat food"><span>Food</span><strong id="food-total">—</strong></div>
             <div class="resource-stat water"><span>Water</span><strong id="water-total">—</strong></div>
@@ -77,6 +94,6 @@
         </aside>
       </section>
     </main>
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=survival-1"></script>
   </body>
 </html>

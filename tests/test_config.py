@@ -11,6 +11,7 @@ def test_load_example_config() -> None:
 
     assert config.world.width == 100
     assert config.world.seed == 42
+    assert config.agents.initial_population == 500
     assert config.visualization.ticks_per_second == 8.0
 
 

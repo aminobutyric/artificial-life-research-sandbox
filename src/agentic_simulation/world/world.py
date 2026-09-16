@@ -109,6 +109,15 @@ class World:
     def resources(self) -> tuple[ResourceView, ...]:
         return self._resources.all()
 
+    def traversable_positions(self) -> tuple[Position, ...]:
+        """Return traversable cells in stable row-major order."""
+
+        traversable = (self._layers.terrain == TerrainType.PLAIN) | (
+            self._layers.terrain == TerrainType.FOREST
+        )
+        ys, xs = np.nonzero(traversable)
+        return tuple(Position(int(x), int(y)) for y, x in zip(ys, xs, strict=True))
+
     def extract_resource(
         self, resource_id: int, requested_amount: float
     ) -> ResourceExtraction:

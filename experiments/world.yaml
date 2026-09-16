@@ -24,9 +24,32 @@ world:
       initial_fill_max: 1.0
       regeneration_rate: 0.25
 
+agents:
+  brain: genetic
+  initial_population: 500
+  initial_health: 100.0
+  initial_energy: 100.0
+  vision_radius: 3.0
+  move_energy_cost: 0.1
+  idle_probability: 0.15
+
+life:
+  enabled: true
+  max_energy: 160.0
+  metabolism_cost: 0.15
+  food_energy: 5.0
+  bite_size: 4.0
+  max_age: 2000
+  reproduction_min_age: 50
+  reproduction_cooldown: 50
+  child_energy: 50.0
+  reproduction_cost: 10.0
+  max_population: 2000
+  mutation_probability: 0.10
+  mutation_sigma: 0.08
+
 visualization:
   host: 127.0.0.1
   port: 8000
   ticks_per_second: 8.0
   broadcast_every_ticks: 1
-

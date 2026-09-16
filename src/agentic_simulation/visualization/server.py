@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from agentic_simulation.config import AppConfig
-from agentic_simulation.world import WorldBuilder
+from agentic_simulation.simulation import SimulationBuilder
 
 STATIC_DIRECTORY = Path(__file__).parent / "static"
 
@@ -24,11 +24,12 @@ class RegenerateRequest(BaseModel):
     seed: int = Field(ge=0)
 
 
-class WorldController:
-    """Run a world independently of any connected visualization clients."""
+class SimulationController:
+    """Run a simulation independently of connected visualization clients."""
 
     def __init__(self, config: AppConfig) -> None:
-        self._world = WorldBuilder.build(config.world)
+        self._config = config
+        self._simulation = SimulationBuilder.build(config)
         self._ticks_per_second = config.visualization.ticks_per_second
         self._broadcast_every = config.visualization.broadcast_every_ticks
         self._lock = asyncio.Lock()
@@ -58,24 +59,25 @@ class WorldController:
 
     async def regenerate(self, seed: int) -> dict[str, Any]:
         async with self._lock:
-            config = self._world.config.model_copy(update={"seed": seed})
-            self._world = WorldBuilder.build(config)
-            frame = self._world.visualization_frame()
+            world_config = self._config.world.model_copy(update={"seed": seed})
+            self._config = self._config.model_copy(update={"world": world_config})
+            self._simulation = SimulationBuilder.build(self._config)
+            frame = self._simulation.visualization_frame()
         self._publish(frame)
         return frame
 
     async def frame(self) -> dict[str, Any]:
         async with self._lock:
-            return self._world.visualization_frame()
+            return self._simulation.visualization_frame()
 
     async def status(self) -> dict[str, Any]:
         async with self._lock:
             return {
                 "running": self.running,
-                "tick": self._world.tick,
+                "tick": self._simulation.tick,
                 "ticks_per_second": self._ticks_per_second,
                 "subscribers": len(self._subscribers),
-                "state_hash": self._world.state_hash(),
+                "state_hash": self._simulation.state_hash(),
             }
 
     def subscribe(self) -> asyncio.Queue[dict[str, Any]]:
@@ -107,8 +109,8 @@ class WorldController:
 
     async def _advance_and_frame(self) -> dict[str, Any]:
         async with self._lock:
-            self._world.advance()
-            update = self._world.visualization_update()
+            self._simulation.advance()
+            update = self._simulation.visualization_update()
         if update["tick"] % self._broadcast_every == 0:
             self._publish(update)
         return update
@@ -117,13 +119,19 @@ class WorldController:
         for queue in tuple(self._subscribers):
             if queue.full():
                 with suppress(asyncio.QueueEmpty):
-                    queue.get_nowait()
+                    previous = queue.get_nowait()
+                    if (
+                        previous.get("kind") == "world"
+                        and frame.get("kind") == "update"
+                    ):
+                        # A replacement map must survive a slow client's dropped frames.
+                        frame = self._simulation.visualization_frame()
             queue.put_nowait(frame)
 
 
 def create_app(config: AppConfig | None = None) -> FastAPI:
     settings = config or AppConfig()
-    controller = WorldController(settings)
+    controller = SimulationController(settings)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -131,7 +139,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         await controller.close()
 
     app = FastAPI(title="Agentic Simulation World", version="0.1.0", lifespan=lifespan)
-    app.state.world_controller = controller
+    app.state.simulation_controller = controller
     app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=6)
     app.mount("/static", StaticFiles(directory=STATIC_DIRECTORY), name="static")
 
