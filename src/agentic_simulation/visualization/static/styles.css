@@ -68,6 +68,9 @@ aside { display: flex; flex-direction: column; gap: 12px; }
 .resource-stat strong { font-size: 1.1rem; }
 .resource-stat.food strong { color: #bfda69; }
 .resource-stat.water strong { color: var(--water); }
+.agent-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.agent-metrics span { display: block; color: var(--muted); font-size: .62rem; text-transform: uppercase; letter-spacing: .06em; }
+.agent-metrics strong { display: block; margin-top: 5px; color: #ef8a62; font: 500 1.15rem Georgia, serif; }
 .muted { color: var(--muted); font-size: .76rem; line-height: 1.5; }
 .terrain-row { display: grid; grid-template-columns: 65px 1fr 42px; align-items: center; gap: 8px; margin: 9px 0; color: var(--muted); font-size: .72rem; }
 .bar { height: 5px; overflow: hidden; background: #0d1211; border-radius: 4px; }
@@ -94,4 +97,3 @@ aside { display: flex; flex-direction: column; gap: 12px; }
   .canvas-wrap { min-height: 400px; padding: 8px; }
   canvas { height: 400px; }
 }
-

@@ -1,0 +1,19 @@
+world:
+  seed: 42
+  width: 30
+  height: 30
+  resources:
+    food:
+      initial_nodes: 0
+      capacity: 100
+    water:
+      initial_nodes: 0
+      capacity: 100
+agents:
+  brain: genetic
+  initial_population: 30
+  initial_energy: 20
+life:
+  metabolism_cost: 0.2
+  max_age: 300
+  max_population: 100
