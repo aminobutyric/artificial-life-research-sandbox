@@ -5,13 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>World Observatory</title>
     <link rel="icon" href="data:,">
-    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/styles.css?v=observatory-2">
   </head>
   <body>
     <main class="shell">
       <header>
         <div>
-          <p class="eyebrow">Agentic Simulation / V1</p>
+          <p class="eyebrow">Agentic Simulation / Survival &amp; Evolution</p>
           <h1>World Observatory</h1>
         </div>
         <div class="connection"><span id="connection-dot"></span><span id="connection">Connecting</span></div>
@@ -21,9 +21,9 @@
         <div class="map-panel">
           <div class="toolbar">
             <div class="controls">
-              <button id="play">Play</button>
-              <button id="pause" class="secondary">Pause</button>
-              <button id="step" class="secondary">Step</button>
+              <button id="play" disabled>Play</button>
+              <button id="pause" class="secondary" disabled>Pause</button>
+              <button id="step" class="secondary" disabled>Step</button>
             </div>
             <label>
               Layer
@@ -37,6 +37,23 @@
             </label>
             <label class="toggle"><input id="resources" type="checkbox" checked> Resources</label>
           </div>
+          <div class="run-controls">
+            <form id="run-form">
+              <label for="run-ticks">Run more ticks</label>
+              <input id="run-ticks" type="number" min="1" max="1000000" step="1" value="100" required>
+              <button id="run" class="secondary" disabled>Run &amp; pause</button>
+            </form>
+            <form id="speed-form">
+              <label for="speed">Target ticks/s</label>
+              <input id="speed" type="number" min="0.1" max="1000" step="any" value="8" required>
+              <button id="set-speed" class="secondary" disabled>Set speed</button>
+            </form>
+          </div>
+          <div class="run-status" role="status">
+            <strong id="run-state">Connecting</strong>
+            <span id="run-details">Waiting for the world…</span>
+          </div>
+          <p id="control-error" class="error-message hidden" role="alert"></p>
           <div class="canvas-wrap">
             <canvas id="world" aria-label="World map"></canvas>
             <div id="hover" class="hover-card hidden"></div>
@@ -45,6 +62,14 @@
         </div>
 
         <aside>
+          <section class="card inspector agent-inspector">
+            <h2>Follow an agent</h2>
+            <p class="muted">Click an agent on the map to follow its energy, age, and genes. Click a shared cell again to cycle through its agents.</p>
+            <p id="selected-agent-status" class="muted" role="status">No agent selected.</p>
+            <div id="agent-details"></div>
+            <button id="clear-agent" class="secondary hidden">Clear selection</button>
+          </section>
+
           <section class="card headline-stats">
             <div><span>Tick</span><strong id="tick">0</strong></div>
             <div><span>World</span><strong id="dimensions">—</strong></div>
@@ -81,10 +106,12 @@
           </section>
 
           <section class="card regenerate">
-            <h2>Generate world</h2>
-            <label>Seed <input id="seed" type="number" min="0" value="42"></label>
-            <button id="regenerate">Regenerate</button>
-            <p class="muted">The same seed and configuration reproduce the same world.</p>
+            <h2>New experiment</h2>
+            <form id="regenerate-form">
+              <label>Seed <input id="seed" type="number" min="0" max="9007199254740991" step="1" value="42" required></label>
+              <button id="regenerate" disabled>Regenerate &amp; pause</button>
+            </form>
+            <p class="muted">Replaces the current run at tick zero, paused. The same seed and configuration reproduce the same world.</p>
           </section>
 
           <section class="card inspector">
@@ -94,6 +121,6 @@
         </aside>
       </section>
     </main>
-    <script src="/static/app.js?v=survival-1"></script>
+    <script src="/static/app.js?v=observatory-2"></script>
   </body>
 </html>

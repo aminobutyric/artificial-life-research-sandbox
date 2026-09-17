@@ -9,6 +9,15 @@ let frame = null;
 let socket = null;
 let reconnectTimer = null;
 let mapBounds = null;
+let control = null;
+let online = false;
+let commandPending = false;
+let connectionEpoch = 0;
+let lastRevision = -1;
+let runId = null;
+let selectedAgentId = null;
+let lastSelectedAgent = null;
+let lastSeenTick = null;
 
 function colorForScalar(name, value) {
   let t = value;
@@ -81,6 +90,14 @@ function draw() {
     context.fill();
     context.stroke();
   }
+  const selected = (frame.agents || []).find(agent => agent.id === selectedAgentId);
+  if (selected) {
+    context.strokeStyle = "#ffffff";
+    context.lineWidth = 2;
+    context.beginPath();
+    context.arc(x + (selected.x + .5) * scale, y + (selected.y + .5) * scale, Math.max(6, scale * .65), 0, Math.PI * 2);
+    context.stroke();
+  }
   updateLegend(layerName);
 }
 
@@ -127,9 +144,24 @@ function updateDashboard() {
 
 function acceptMessage(message) {
   if (message.kind === "heartbeat") return;
-  if (message.kind === "world" || !frame) {
+  if (!["world", "update", "status"].includes(message.kind)) return;
+  if (!frame && message.kind !== "world") return;
+  if (message.revision < lastRevision) return;
+  if (message.run_id !== runId) {
+    if (message.kind !== "world") return;
+    clearSelection();
+    runId = message.run_id;
+    document.querySelector("#seed").value = message.control.seed;
+    document.querySelector("#cell-details").textContent = "Move over the map to inspect a cell.";
+  }
+  lastRevision = message.revision;
+  const previousError = control?.error;
+  control = message.control;
+  if (previousError && !control.error) showError("");
+  setConnection(true);
+  if (message.kind === "world") {
     frame = message;
-  } else {
+  } else if (message.kind === "update") {
     const temperatureDelta = message.temperature_offset - frame.temperature_offset;
     frame.temperature_offset = message.temperature_offset;
     frame.tick = message.tick;
@@ -144,44 +176,124 @@ function acceptMessage(message) {
       resource.amount = amounts.get(resource.id) ?? resource.amount;
     }
   }
+  updateControls();
   updateDashboard();
+  updateAgentInspector();
   draw();
 }
 
 function connect() {
   const protocol = location.protocol === "https:" ? "wss" : "ws";
   socket = new WebSocket(`${protocol}://${location.host}/ws/world`);
-  socket.addEventListener("open", () => setConnection(true));
-  socket.addEventListener("message", event => acceptMessage(JSON.parse(event.data)));
+  socket.addEventListener("open", () => {
+    // The first full frame establishes a new revision sequence after reconnect.
+    connectionEpoch += 1;
+    frame = null;
+    lastRevision = -1;
+  });
+  socket.addEventListener("message", event => {
+    try {
+      acceptMessage(JSON.parse(event.data));
+    } catch (error) {
+      showError("Could not display a world update: " + error.message);
+    }
+  });
+  socket.addEventListener("error", () => setConnection(false));
   socket.addEventListener("close", () => {
+    connectionEpoch += 1;
     setConnection(false);
     clearTimeout(reconnectTimer);
     reconnectTimer = setTimeout(connect, 1200);
   });
 }
 
-function setConnection(online) {
+function setConnection(connected) {
+  online = connected;
   const element = document.querySelector(".connection");
   element.classList.toggle("online", online);
   document.querySelector("#connection").textContent = online ? "Live connection" : "Reconnecting";
+  updateControls();
+}
+
+function showError(message) {
+  const element = document.querySelector("#control-error");
+  element.textContent = message || "";
+  element.classList.toggle("hidden", !message);
+}
+
+function updateControls() {
+  const ready = online && frame && control && !commandPending;
+  const running = control?.running;
+  const failed = Boolean(control?.error);
+  document.querySelector("#play").disabled = !ready || running || failed;
+  document.querySelector("#pause").disabled = !ready || !running;
+  document.querySelector("#step").disabled = !ready || running || failed;
+  document.querySelector("#run").disabled = !ready || running || failed;
+  document.querySelector("#set-speed").disabled = !ready || failed;
+  document.querySelector("#regenerate").disabled = !ready;
+  document.querySelector("#run-state").textContent = !online ? "Disconnected" : failed ? "Stopped · error" : running ? "Running" : "Paused";
+  const details = document.querySelector("#run-details");
+  if (!online) {
+    details.textContent = "Reconnecting… Keep the serve command running in your terminal.";
+  } else if (control) {
+    const target = control.target_tick;
+    const goal = target === null ? (running ? "Continuous run" : "Click Play, Step, or Run & pause")
+      : control.remaining_ticks === 0 ? "Reached tick " + target
+      : control.remaining_ticks + " ticks remaining · stopping at " + target;
+    const cost = control.last_tick_ms;
+    const slow = running && cost > 1000 / control.ticks_per_second ? " · CPU limited" : "";
+    details.textContent = goal + " · target " + control.ticks_per_second + " ticks/s · last tick " + cost.toFixed(1) + " ms" + slow;
+    if (document.activeElement !== document.querySelector("#speed") && !commandPending) {
+      document.querySelector("#speed").value = control.ticks_per_second;
+    }
+  }
+  if (control?.error) showError(control.error);
 }
 
 async function command(name, body) {
-  const response = await fetch(`/api/control/${name}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (!response.ok) throw new Error((await response.json()).detail || response.statusText);
-  const data = await response.json();
-  if (data.kind === "world" || data.kind === "update") acceptMessage(data);
-  return data;
+  if (commandPending || !online) return;
+  const epoch = connectionEpoch;
+  commandPending = true;
+  showError("");
+  updateControls();
+  try {
+    const response = await fetch(`/api/control/${name}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      const detail = Array.isArray(data.detail) ? data.detail.map(item => item.msg).join("; ") : data.detail;
+      throw new Error(detail || response.statusText);
+    }
+    if (epoch === connectionEpoch) acceptMessage(data);
+  } catch (error) {
+    if (epoch === connectionEpoch) {
+      showError(error.message || "The command failed. Check that the server is running.");
+    }
+  } finally {
+    commandPending = false;
+    updateControls();
+  }
 }
 
 document.querySelector("#play").addEventListener("click", () => command("play"));
 document.querySelector("#pause").addEventListener("click", () => command("pause"));
 document.querySelector("#step").addEventListener("click", () => command("step"));
-document.querySelector("#regenerate").addEventListener("click", () => command("regenerate", { seed: Number(document.querySelector("#seed").value) }));
+document.querySelector("#regenerate-form").addEventListener("submit", event => {
+  event.preventDefault();
+  command("regenerate", { seed: Number(document.querySelector("#seed").value) });
+});
+document.querySelector("#run-form").addEventListener("submit", event => {
+  event.preventDefault();
+  command("run", { ticks: Number(document.querySelector("#run-ticks").value) });
+});
+document.querySelector("#speed-form").addEventListener("submit", event => {
+  event.preventDefault();
+  command("speed", { ticks_per_second: Number(document.querySelector("#speed").value) });
+});
 document.querySelector("#layer").addEventListener("change", draw);
 document.querySelector("#resources").addEventListener("change", draw);
 window.addEventListener("resize", draw);
@@ -217,11 +329,65 @@ canvas.addEventListener("mousemove", event => {
 });
 canvas.addEventListener("mouseleave", () => document.querySelector("#hover").classList.add("hidden"));
 
-fetch("/api/world")
-  .then(response => {
-    if (!response.ok) throw new Error(response.statusText);
-    return response.json();
-  })
-  .then(message => { if (!frame) acceptMessage(message); })
-  .catch(() => setConnection(false));
+function clearSelection() {
+  selectedAgentId = null;
+  lastSelectedAgent = null;
+  lastSeenTick = null;
+  document.querySelector("#selected-agent-status").textContent = "No agent selected.";
+  document.querySelector("#agent-details").replaceChildren();
+  document.querySelector("#clear-agent").classList.add("hidden");
+}
+
+function updateAgentInspector() {
+  if (selectedAgentId === null) return;
+  const current = frame.agents.find(agent => agent.id === selectedAgentId);
+  if (current) {
+    lastSelectedAgent = current;
+    lastSeenTick = frame.tick;
+  }
+  const agent = lastSelectedAgent;
+  if (!agent) return;
+  document.querySelector("#selected-agent-status").textContent = current
+    ? "Following #" + agent.id + " · live at tick " + frame.tick
+    : "Agent #" + agent.id + " has died. Last observed at tick " + lastSeenTick + ".";
+  const values = {
+    Position: agent.x + ", " + agent.y,
+    Energy: agent.energy.toFixed(2),
+    Health: agent.health.toFixed(2),
+    Age: agent.age + " ticks",
+    Brain: agent.brain,
+    Generation: agent.generation,
+    Parent: agent.parent_id ?? "Founder",
+    ...Object.fromEntries(Object.entries(agent.genome).map(([name, value]) => [
+      name.replaceAll("_", " "), value.toFixed(3),
+    ])),
+  };
+  const list = document.createElement("dl");
+  for (const [label, value] of Object.entries(values)) {
+    const term = document.createElement("dt");
+    const description = document.createElement("dd");
+    term.textContent = label;
+    description.textContent = value;
+    list.append(term, description);
+  }
+  document.querySelector("#agent-details").replaceChildren(list);
+  document.querySelector("#clear-agent").classList.remove("hidden");
+}
+
+canvas.addEventListener("click", event => {
+  if (!frame || !mapBounds || !online) return;
+  const x = Math.floor((event.offsetX - mapBounds.x) / mapBounds.scale);
+  const y = Math.floor((event.offsetY - mapBounds.y) / mapBounds.scale);
+  const agents = frame.agents.filter(agent => agent.x === x && agent.y === y);
+  if (!agents.length) return;
+  const index = agents.findIndex(agent => agent.id === selectedAgentId);
+  selectedAgentId = agents[(index + 1) % agents.length].id;
+  updateAgentInspector();
+  draw();
+});
+document.querySelector("#clear-agent").addEventListener("click", () => {
+  clearSelection();
+  draw();
+});
+
 connect();
