@@ -248,7 +248,9 @@ class SimulationController:
                         and frame.get("kind") == "update"
                     ):
                         # A replacement map must survive a slow client's dropped frames.
-                        outgoing = self._decorate(self._simulation.visualization_frame())
+                        outgoing = self._decorate(
+                            self._simulation.visualization_frame()
+                        )
             queue.put_nowait(outgoing)
 
 

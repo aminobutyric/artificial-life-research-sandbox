@@ -1,5 +1,6 @@
 import asyncio
 import time
+import warnings
 
 import httpx
 import pytest
@@ -239,3 +240,24 @@ def test_failed_clock_reports_error_and_requires_regeneration(
             await controller.close()
 
     asyncio.run(exercise())
+
+
+def test_websocket_controls_and_disconnect_cleanup() -> None:
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="Using `httpx` with.*")
+        warnings.filterwarnings("ignore", message="The anyio.abc.BlockingPortal.*")
+        from fastapi.testclient import TestClient
+
+    with TestClient(create_app(control_config())) as client:
+        with client.websocket_connect("/ws/world") as socket:
+            initial = socket.receive_json()
+            assert initial["kind"] == "world"
+            assert initial["control"]["state"] == "paused"
+            assert client.get("/api/status").json()["subscribers"] == 1
+
+            assert client.post("/api/control/step").status_code == 200
+            update = socket.receive_json()
+            assert update["tick"] == 1
+            assert update["run_id"] == initial["run_id"]
+
+        assert client.get("/api/status").json()["subscribers"] == 0
