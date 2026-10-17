@@ -57,6 +57,15 @@ def test_bounds_and_euclidean_region() -> None:
         world.cell_at(Position(world.width, 0))
 
 
+def test_batched_regions_match_individual_observations() -> None:
+    world = WorldBuilder.build(small_config())
+    requests = ((Position(4, 4), 2.0), (Position(5, 4), 3.0))
+
+    assert world.observe_regions(requests) == tuple(
+        world.observe_region(center, radius) for center, radius in requests
+    )
+
+
 def test_extraction_is_atomic_and_regeneration_is_capped() -> None:
     world = WorldBuilder.build(small_config())
     resource = world.resources_near(Position(12, 8), 100, ResourceType.FOOD)[0]

@@ -44,3 +44,49 @@ def test_missing_config_does_not_silently_run_another_experiment(
 ) -> None:
     with pytest.raises(FileNotFoundError):
         main(["--config", str(tmp_path / "absent.yaml"), "run", "--ticks", "1"])
+
+
+def test_headless_run_reports_progress(capsys: pytest.CaptureFixture[str]) -> None:
+    assert (
+        main(
+            [
+                "--config",
+                "experiments/starvation.yaml",
+                "run",
+                "--ticks",
+                "3",
+                "--progress-every",
+                "2",
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["tick"] == 3
+    progress = captured.err
+    assert "Starting headless simulation for 3 ticks" in progress
+    assert "tick 2/3" in progress
+    assert "tick 3/3" in progress
+
+
+def test_quiet_headless_run_keeps_stdout_as_json(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert (
+        main(
+            [
+                "--config",
+                "experiments/starvation.yaml",
+                "run",
+                "--ticks",
+                "0",
+                "--progress-every",
+                "0",
+            ]
+        )
+        == 0
+    )
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["tick"] == 0
+    assert captured.err == ""

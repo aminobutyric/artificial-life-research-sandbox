@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from agentic_simulation.world import World
+from agentic_simulation.world import RegionView, World
 
-from .models import NearbyAgentObservation, Observation, SelfObservation
+from .models import AgentView, NearbyAgentObservation, Observation, SelfObservation
 from .spatial import AgentSpatialIndex
 from .store import AgentStore
 
@@ -21,11 +21,21 @@ class PerceptionSystem:
         self._spatial_index = spatial_index
 
     def observe_all(self) -> tuple[Observation, ...]:
-        return tuple(self.observe(agent.id) for agent in self._agents.living())
+        agents = self._agents.living()
+        regions = self._world.observe_regions(
+            tuple((agent.position, agent.vision_radius) for agent in agents)
+        )
+        return tuple(
+            self._observation(agent, region)
+            for agent, region in zip(agents, regions, strict=True)
+        )
 
     def observe(self, agent_id: int) -> Observation:
         agent = self._agents.get(agent_id)
         region = self._world.observe_region(agent.position, agent.vision_radius)
+        return self._observation(agent, region)
+
+    def _observation(self, agent: AgentView, region: RegionView) -> Observation:
         nearby_ids = self._spatial_index.near(
             agent.position, agent.vision_radius, exclude_id=agent.id
         )

@@ -76,6 +76,27 @@ class World:
         )
 
     def observe_region(self, center: Position, radius: float) -> RegionView:
+        """Observe one region using an isolated immutable cell snapshot."""
+
+        return self._observe_region(center, radius, {})
+
+    def observe_regions(
+        self, requests: tuple[tuple[Position, float], ...]
+    ) -> tuple[RegionView, ...]:
+        """Observe many regions while reusing cell snapshots for this tick."""
+
+        cell_cache: dict[Position, CellView] = {}
+        return tuple(
+            self._observe_region(center, radius, cell_cache)
+            for center, radius in requests
+        )
+
+    def _observe_region(
+        self,
+        center: Position,
+        radius: float,
+        cell_cache: dict[Position, CellView],
+    ) -> RegionView:
         self._require_position(center)
         if radius < 0.0:
             raise ValueError("radius cannot be negative")
@@ -89,12 +110,23 @@ class World:
                 min(self.width, ceil(center.x + radius) + 1),
             ):
                 if hypot(x - center.x, y - center.y) <= radius:
-                    cells.append(self.cell_at(Position(x, y)))
+                    position = Position(x, y)
+                    cell = cell_cache.get(position)
+                    if cell is None:
+                        cell = self.cell_at(position)
+                        cell_cache[position] = cell
+                    cells.append(cell)
+        resources = tuple(
+            sorted(
+                (resource for cell in cells for resource in cell.resources),
+                key=lambda resource: resource.id,
+            )
+        )
         return RegionView(
             center=center,
             radius=radius,
             cells=tuple(cells),
-            resources=self._resources.near(center, radius),
+            resources=resources,
         )
 
     def resources_near(
