@@ -32,6 +32,13 @@ The finalized semantics are recorded in the
 The first agent boundary is documented in
 [Agent Phase 1 contract](docs/agents-v1.md).
 
+The documentation for running research is in
+[Experiment practice](docs/experiments.md). The first defined study is
+[Experiment 001: food regeneration](experiments/food_regeneration/README.md).
+
+The agreed next milestone and its five ordered implementation items are in the
+[implementation backlog](docs/backlog.md).
+
 ## Run locally
 
 Python 3.12 and [`uv`](https://docs.astral.sh/uv/) are required.
@@ -43,6 +50,18 @@ uv run alife --config experiments/world.yaml serve
 
 Open <http://127.0.0.1:8000>. The world starts paused so it can be inspected at
 tick zero. Keep this terminal open while using the browser.
+
+Use **Run setup & management** to choose a population-wide core, seed,
+population, environment, lifecycle settings, and tick horizon. **Start new
+experiment** replaces the paused world and runs to that horizon. Model settings
+stay fixed throughout the run; the complete active configuration remains
+inspectable. See [run setup](docs/run-setup.md) for validation and control rules.
+
+Completed bounded runs open a summary dialog with population history and outcome
+metrics. **Saved experiment results** reopens earlier summaries and provides a
+full HTML report and ZIP downloads. Results persist under `runs/browser/`;
+manual pauses save interrupted executions. See
+[completion summaries and saved results](docs/completion-results.md).
 
 - **Play** advances continuously; **Pause** stops after the current tick.
 - **Run & pause** advances by the entered number of additional ticks, then stops.
@@ -76,6 +95,25 @@ Append `--events life.jsonl` to record lifecycle events and actions. The default
 experiment uses genetic brains; `experiments/starvation.yaml` demonstrates
 extinction without food. Restart the running server after updating code, then
 refresh the browser to load the survival UI.
+
+## First experiment
+
+Run the complete predefined food-regeneration matrix:
+
+```console
+uv run python experiments/food_regeneration/run.py \
+  --output runs/food-regeneration-001
+```
+
+This executes scarce, baseline, and abundant conditions for five fixed seeds.
+It writes sampled metrics and per-run/condition summaries under the new output
+directory. For a quick pipeline check:
+
+```console
+uv run python experiments/food_regeneration/run.py \
+  --ticks 50 --sample-every 10 --seeds 11 \
+  --output runs/food-regeneration-smoke
+```
 
 The same configuration and seed produce the same initial world and update
 sequence. A saved snapshot contains all environmental layers, resource state,

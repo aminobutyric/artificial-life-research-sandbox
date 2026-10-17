@@ -12,12 +12,14 @@ from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
-from agentic_simulation.config import AppConfig
+from agentic_simulation.config import AgentsConfig, AppConfig, LifeConfig, WorldConfig
 from agentic_simulation.simulation import SimulationBuilder
+
+from .results import ExecutionRecord, ResultStore, report_html
 
 STATIC_DIRECTORY = Path(__file__).parent / "static"
 LOGGER = logging.getLogger(__name__)
@@ -39,10 +41,42 @@ class SpeedRequest(ControlRequest):
     ticks_per_second: float = Field(gt=0, le=1000, strict=True)
 
 
+CORE_CATALOG = (
+    {
+        "id": "random",
+        "label": "Random movement",
+        "description": "Moves randomly or idles. Does not eat or reproduce.",
+    },
+    {
+        "id": "genetic",
+        "label": "Reactive forager",
+        "description": "Seeks visible food; reproduces using genome traits. No memory.",
+    },
+)
+
+
+class NewExperimentRequest(ControlRequest):
+    expected_run_id: str = Field(min_length=1)
+    world: WorldConfig
+    agents: AgentsConfig
+    life: LifeConfig
+    ticks: int = Field(ge=1, le=1_000_000, strict=True)
+
+    def configuration(self, current: AppConfig) -> AppConfig:
+        return AppConfig(
+            world=self.world,
+            agents=self.agents,
+            life=self.life,
+            visualization=current.visualization,
+        )
+
+
 class SimulationController:
     """Run a simulation independently of connected visualization clients."""
 
-    def __init__(self, config: AppConfig) -> None:
+    def __init__(
+        self, config: AppConfig, results_directory: Path | None = None
+    ) -> None:
         self._config = config
         self._simulation = SimulationBuilder.build(config)
         self._ticks_per_second = config.visualization.ticks_per_second
@@ -57,6 +91,13 @@ class SimulationController:
         self._target_tick: int | None = None
         self._last_tick_ms = 0.0
         self._error: str | None = None
+        self._horizon = 1000
+        self.results = ResultStore(results_directory) if results_directory else None
+        self._record: ExecutionRecord | None = None
+        self._result_frame = self._simulation.visualization_update()
+        self._latest_result: dict[str, Any] | None = None
+        self._completed_result_id: str | None = None
+        self._results_error: str | None = None
 
     @property
     def running(self) -> bool:
@@ -72,13 +113,18 @@ class SimulationController:
             raise ValueError("ticks must be positive")
         if ticks is not None and self.running:
             raise RuntimeError("pause the world before starting a bounded run")
-        self._target_tick = None if ticks is None else self._simulation.tick + ticks
+        if self.running:
+            return
+        target = None if ticks is None else self._simulation.tick + ticks
+        self._begin_record(target)
+        self._target_tick = target
         self.start()
         self._play_event.set()
         self._control_changed()
 
     def pause(self) -> None:
         self._play_event.clear()
+        self._finish_record("interrupted", "Manually paused before completion.")
         self._target_tick = None
         self._control_changed()
 
@@ -100,15 +146,56 @@ class SimulationController:
             config = self._config.model_copy(update={"world": world_config})
             simulation = SimulationBuilder.build(config)
             self._play_event.clear()
+            self._finish_record("interrupted", "World replaced by regeneration.")
             self._wake_event.set()
             self._target_tick = None
             self._error = None
             self._last_tick_ms = 0.0
             self._config = config
             self._simulation = simulation
+            self._result_frame = simulation.visualization_update()
             self._run_id = str(uuid4())
             self._revision += 1
             frame = self._decorate(self._simulation.visualization_frame())
+        self._publish(frame)
+        return frame
+
+    async def new_experiment(self, request: NewExperimentRequest) -> dict[str, Any]:
+        async with self._lock:
+            if request.expected_run_id != self._run_id:
+                raise RuntimeError(
+                    "The active run changed. Review its setup and retry."
+                )
+            if self.running:
+                raise RuntimeError(
+                    "Pause the current run before starting a new experiment."
+                )
+            config = request.configuration(self._config)
+            # Build before replacing anything: rejected setups preserve the old run.
+            simulation = SimulationBuilder.build(config)
+            record = ExecutionRecord(
+                self.results,
+                str(uuid4()),
+                config.model_dump(mode="json"),
+                simulation.visualization_update(),
+                request.ticks,
+                simulation.state_hash(),
+            )
+            self._config = config
+            self._simulation = simulation
+            self._horizon = request.ticks
+            self._target_tick = request.ticks
+            self._error = None
+            self._last_tick_ms = 0.0
+            self._run_id = record.initial["run_id"]
+            self._record = record
+            self._result_frame = simulation.visualization_update()
+            self._results_error = None
+            self._revision += 1
+            self.start()
+            self._play_event.set()
+            self._wake_event.set()
+            frame = self._decorate(simulation.visualization_frame())
         self._publish(frame)
         return frame
 
@@ -137,7 +224,9 @@ class SimulationController:
         self._subscribers.discard(queue)
 
     async def close(self) -> None:
-        self.pause()
+        self._play_event.clear()
+        self._finish_record("interrupted", "Server shut down before completion.")
+        self._target_tick = None
         if self._task is not None:
             self._task.cancel()
             with suppress(asyncio.CancelledError):
@@ -174,11 +263,30 @@ class SimulationController:
                     "Regenerate to start again; see the server log for details."
                 )
                 self._play_event.clear()
+                self._finish_record(
+                    "failed", "Simulation tick failed; last successful sample shown."
+                )
                 self._target_tick = None
                 self._revision += 1
                 update = self._decorate({"kind": "status"})
                 self._publish(update)
                 return update
+            self._result_frame = {
+                "tick": update["tick"],
+                "agent_statistics": update["agent_statistics"],
+            }
+            if self._record:
+                try:
+                    self._record.observe(self._result_frame)
+                except OSError:
+                    LOGGER.exception("Could not save experiment metrics")
+                    self._play_event.clear()
+                    self._finish_record("failed", "Saving experiment metrics failed.")
+                    self._target_tick = None
+                    self._results_error = (
+                        "Saving results failed. Check disk space and permissions."
+                    )
+                    force_publish = True
             self._last_tick_ms = (asyncio.get_running_loop().time() - started) * 1000
             self._revision += 1
             finished = (
@@ -187,6 +295,7 @@ class SimulationController:
             )
             if finished:
                 self._play_event.clear()
+                self._finish_record("complete", "Reached the requested target tick.")
             update = self._decorate(update)
         if force_publish or finished or update["tick"] % self._broadcast_every == 0:
             self._publish(update)
@@ -195,6 +304,38 @@ class SimulationController:
     def _require_healthy(self) -> None:
         if self._error:
             raise RuntimeError(self._error)
+
+    def _begin_record(self, target_tick: int | None) -> None:
+        self._record = ExecutionRecord(
+            self.results,
+            self._run_id,
+            self._config.model_dump(mode="json"),
+            self._simulation.visualization_update(),
+            target_tick,
+            self._simulation.state_hash(),
+        )
+        self._results_error = None
+
+    def _finish_record(self, status: str, reason: str) -> None:
+        if self._record is None:
+            return
+        record, self._record = self._record, None
+        try:
+            result = record.finish(
+                self._result_frame,
+                status,
+                reason,
+                None if status == "failed" else self._simulation.state_hash(),
+            )
+            self._latest_result = result["summary"]
+            if status == "complete":
+                self._completed_result_id = record.result_id
+        except OSError:
+            LOGGER.exception("Could not finalize experiment results")
+            self._results_error = (
+                "Saving results failed. Completion was not recorded. "
+                "Check disk space and permissions."
+            )
 
     def _control_state(self) -> dict[str, Any]:
         return {
@@ -206,6 +347,8 @@ class SimulationController:
             "running": self.running,
             "tick": self._simulation.tick,
             "seed": self._config.world.seed,
+            "core": self._config.agents.brain,
+            "horizon": self._horizon,
             "ticks_per_second": self._ticks_per_second,
             "last_tick_ms": round(self._last_tick_ms, 2),
             "target_tick": self._target_tick,
@@ -213,11 +356,23 @@ class SimulationController:
             if self._target_tick is not None
             else None,
             "error": self._error,
+            "active_result_id": self._record.result_id if self._record else None,
+            "completed_result_id": self._completed_result_id,
+            "latest_result": self._latest_result,
+            "results_error": self._results_error,
         }
 
     def _decorate(self, frame: dict[str, Any]) -> dict[str, Any]:
         return {
             **frame,
+            **(
+                {
+                    "run_configuration": self._config.model_dump(mode="json"),
+                    "core_catalog": CORE_CATALOG,
+                }
+                if frame.get("kind") == "world"
+                else {}
+            ),
             "run_id": self._run_id,
             "revision": self._revision,
             "control": self._control_state(),
@@ -254,9 +409,11 @@ class SimulationController:
             queue.put_nowait(outgoing)
 
 
-def create_app(config: AppConfig | None = None) -> FastAPI:
+def create_app(
+    config: AppConfig | None = None, *, results_directory: Path = Path("runs/browser")
+) -> FastAPI:
     settings = config or AppConfig()
-    controller = SimulationController(settings)
+    controller = SimulationController(settings, results_directory)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -267,6 +424,46 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     app.state.simulation_controller = controller
     app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=6)
     app.mount("/static", StaticFiles(directory=STATIC_DIRECTORY), name="static")
+
+    @app.exception_handler(OSError)
+    async def storage_error(_: Any, error: OSError) -> JSONResponse:
+        LOGGER.error("Result storage unavailable: %s", error)
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": "Cannot save results. Check disk space and permissions."
+            },
+        )
+
+    def saved_result(result_id: str) -> dict[str, Any]:
+        assert controller.results is not None
+        try:
+            return controller.results.read(result_id)
+        except (FileNotFoundError, ValueError, KeyError) as error:
+            raise HTTPException(status_code=404, detail="Result not found") from error
+
+    @app.get("/api/results")
+    async def results_index() -> dict[str, Any]:
+        assert controller.results is not None
+        return {"results": controller.results.list_results()}
+
+    @app.get("/api/results/{result_id}")
+    async def result_detail(result_id: str) -> dict[str, Any]:
+        return saved_result(result_id)
+
+    @app.get("/api/results/{result_id}/report", response_class=HTMLResponse)
+    async def result_report(result_id: str) -> str:
+        return report_html(saved_result(result_id))
+
+    @app.get("/api/results/{result_id}/download")
+    async def result_download(result_id: str) -> Response:
+        saved_result(result_id)
+        assert controller.results is not None
+        return Response(
+            controller.results.archive(result_id),
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{result_id}.zip"'},
+        )
 
     @app.get("/", include_in_schema=False)
     async def index() -> FileResponse:
@@ -316,6 +513,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.post("/api/control/regenerate")
     async def regenerate(request: RegenerateRequest) -> dict[str, Any]:
         return await controller.regenerate(request.seed)
+
+    @app.post("/api/control/new-experiment")
+    async def new_experiment(request: NewExperimentRequest) -> dict[str, Any]:
+        try:
+            return await controller.new_experiment(request)
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
 
     @app.websocket("/ws/world")
     async def world_socket(websocket: WebSocket) -> None:

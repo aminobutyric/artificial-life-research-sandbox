@@ -31,6 +31,12 @@ def _parser() -> argparse.ArgumentParser:
     serve = commands.add_parser("serve", help="serve the live world visualization")
     serve.add_argument("--host", help="override the configured bind address")
     serve.add_argument("--port", type=int, help="override the configured port")
+    serve.add_argument(
+        "--results-dir",
+        type=Path,
+        default=Path("runs/browser"),
+        help="directory for saved browser experiment results",
+    )
 
     generate = commands.add_parser(
         "generate", help="run headlessly and save a snapshot"
@@ -60,11 +66,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         port = args.port or config.visualization.port
         print(
             f"Browser visualization: http://{host}:{port}\n"
-            "Starts paused. Open the address, then click Play or Run & pause.",
+            "Starts paused. Open the address, then click Play or Run & pause.\n"
+            f"Saved browser results: {args.results_dir.resolve()}",
             file=sys.stderr,
             flush=True,
         )
-        uvicorn.run(create_app(config), host=host, port=port)
+        uvicorn.run(
+            create_app(config, results_directory=args.results_dir), host=host, port=port
+        )
         return 0
 
     if args.ticks < 0:

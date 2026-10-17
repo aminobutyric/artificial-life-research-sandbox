@@ -60,5 +60,18 @@ position, health, energy, age, brain, lineage, and genome update from live frame
 The browser retains only the selected agent's last observation after death;
 the exact death tick/reason is not inferred from sampled frames.
 
-Full simulation checkpoints, replay, population-history charts, memory, and
-agent communication remain future phases.
+## Run setup
+
+The [run setup panel](run-setup.md) selects one core for the population and
+creates a fresh bounded experiment with a frozen model configuration. It
+requires the current run to be paused and preserves it when validation fails.
+
+## Completion and results
+
+Reaching a bounded target opens the [completion summary](completion-results.md)
+with a population trajectory, experiment settings, and outcome metrics. Saved
+history offers summary reopening, a full report, and ZIP downloads. Manual pause
+saves an interrupted segment without issuing a completion dialog.
+
+Full simulation checkpoints, replay, memory, and agent communication remain
+future phases.

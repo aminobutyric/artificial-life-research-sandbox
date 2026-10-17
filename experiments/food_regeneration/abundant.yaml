@@ -1,0 +1,52 @@
+world:
+  schema_version: 1
+  seed: 11
+  width: 50
+  height: 50
+  day_length_ticks: 240
+  diurnal_temperature_amplitude: 4.0
+  generation:
+    smoothing_passes: 4
+    water_level: 0.28
+    mountain_level: 0.80
+    forest_moisture: 0.58
+  resources:
+    food:
+      initial_nodes: 60
+      capacity: 100.0
+      initial_fill_min: 0.45
+      initial_fill_max: 1.0
+      regeneration_rate: 0.30
+    water:
+      initial_nodes: 0
+      capacity: 120.0
+      initial_fill_min: 0.70
+      initial_fill_max: 1.0
+      regeneration_rate: 0.25
+agents:
+  brain: genetic
+  initial_population: 100
+  initial_health: 100.0
+  initial_energy: 100.0
+  vision_radius: 3.0
+  move_energy_cost: 0.1
+  idle_probability: 0.15
+life:
+  enabled: true
+  max_energy: 160.0
+  metabolism_cost: 0.15
+  food_energy: 5.0
+  bite_size: 4.0
+  max_age: 2000
+  reproduction_min_age: 50
+  reproduction_cooldown: 50
+  child_energy: 50.0
+  reproduction_cost: 10.0
+  max_population: 1000
+  mutation_probability: 0.10
+  mutation_sigma: 0.08
+visualization:
+  host: 127.0.0.1
+  port: 8000
+  ticks_per_second: 8.0
+  broadcast_every_ticks: 1

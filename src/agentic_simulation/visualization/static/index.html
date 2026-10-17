@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>World Observatory</title>
     <link rel="icon" href="data:,">
-    <link rel="stylesheet" href="/static/styles.css?v=observatory-2">
+    <link rel="stylesheet" href="/static/styles.css?v=results-1">
   </head>
   <body>
     <main class="shell">
@@ -16,6 +16,35 @@
         </div>
         <div class="connection"><span id="connection-dot"></span><span id="connection">Connecting</span></div>
       </header>
+
+      <section class="card setup-panel" aria-labelledby="setup-heading">
+        <div>
+          <h2 id="setup-heading">Run setup &amp; management</h2>
+          <p class="muted">Choose one decision core for the entire population. Settings below apply to a new run and stay fixed throughout it. Pause the current run before replacing it.</p>
+          <form id="setup-form">
+            <fieldset id="setup-fields" disabled>
+              <label for="setup-core">Decision core</label>
+              <select id="setup-core" required></select>
+              <p id="core-description" class="muted"></p>
+              <div id="setup-inputs" class="setup-grid"></div>
+              <label for="setup-ticks">Experiment horizon (ticks)</label>
+              <input id="setup-ticks" type="number" min="1" max="1000000" step="1" value="1000" required>
+              <div class="setup-actions">
+                <button id="start-experiment" disabled>Start new experiment</button>
+                <button id="reset-setup" type="button" class="secondary">Reset to active settings</button>
+              </div>
+            </fieldset>
+          </form>
+          <p id="setup-error" class="error-message hidden" role="alert"></p>
+        </div>
+        <div>
+          <h2>Active run configuration</h2>
+          <p id="active-setup" class="muted" role="status">Waiting for the world…</p>
+          <p class="muted">Genome variation is independent of the core choice. Mutation probability 0 disables mutation; founders retain their seeded genome variation.</p>
+          <details><summary>View all resolved settings (read-only)</summary><pre id="active-configuration"></pre></details>
+          <p class="muted">Starting a new experiment replaces the current world and clears the selected agent. It runs from tick zero to the chosen horizon.</p>
+        </div>
+      </section>
 
       <section class="workspace">
         <div class="map-panel">
@@ -54,6 +83,7 @@
             <span id="run-details">Waiting for the world…</span>
           </div>
           <p id="control-error" class="error-message hidden" role="alert"></p>
+          <p id="results-error" class="error-message hidden" role="alert"></p>
           <div class="canvas-wrap">
             <canvas id="world" aria-label="World map"></canvas>
             <div id="hover" class="hover-card hidden"></div>
@@ -62,6 +92,16 @@
         </div>
 
         <aside>
+          <section class="card">
+            <h2>Saved experiment results</h2>
+            <label for="saved-result">Execution history</label>
+            <select id="saved-result" aria-label="Saved experiment execution"></select>
+            <div class="setup-actions">
+              <button id="open-result" class="secondary" disabled>View summary</button>
+              <button id="refresh-results" class="secondary" type="button">Refresh</button>
+            </div>
+            <p id="results-status" class="muted" role="status">Loading saved results…</p>
+          </section>
           <section class="card inspector agent-inspector">
             <h2>Follow an agent</h2>
             <p class="muted">Click an agent on the map to follow its energy, age, and genes. Click a shared cell again to cycle through its agents.</p>
@@ -121,6 +161,22 @@
         </aside>
       </section>
     </main>
-    <script src="/static/app.js?v=observatory-2"></script>
+    <dialog id="result-dialog" aria-labelledby="result-heading">
+      <div class="result-dialog-header">
+        <h2 id="result-heading">Experiment summary</h2>
+        <button id="close-result" class="secondary" type="button" autofocus>Close</button>
+      </div>
+      <p id="result-description" class="muted" role="status"></p>
+      <dl id="result-metrics" class="result-metrics"></dl>
+      <h3>Population trajectory</h3>
+      <div id="result-chart"></div>
+      <p class="muted">Population samples include the execution start, every 50 ticks, and the final successful tick. Births and deaths are changes during this execution segment.</p>
+      <details><summary>Resolved configuration</summary><pre id="result-configuration"></pre></details>
+      <div id="result-links" class="setup-actions hidden">
+        <a id="result-report" target="_blank" rel="noopener">Open full report</a>
+        <a id="result-download" download>Download results (.zip)</a>
+      </div>
+    </dialog>
+    <script src="/static/app.js?v=results-1"></script>
   </body>
 </html>
