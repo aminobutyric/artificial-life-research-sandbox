@@ -88,4 +88,5 @@ Food placement and founder genomes both change with seed, intentionally forming
 one replicate of the whole seeded world. The experiment does not isolate
 mutation, estimate causal effects of individual genes, or distinguish old-age
 from starvation deaths in its interval summary. Ascending agent-ID resolution
-can favor earlier agents. Results cannot yet resume from checkpoints.
+can favor earlier agents. This batch runner does not resume from checkpoints;
+its technical-failure rule still requires restarting the complete matrix.

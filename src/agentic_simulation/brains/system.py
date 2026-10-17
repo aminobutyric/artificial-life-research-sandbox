@@ -41,6 +41,10 @@ class BrainSystem:
         self._registry = registry
         self._seed = seed
 
+    @property
+    def seed(self) -> int:
+        return self._seed
+
     def decide_all(
         self, observations: tuple[Observation, ...]
     ) -> tuple[ActionIntent, ...]:

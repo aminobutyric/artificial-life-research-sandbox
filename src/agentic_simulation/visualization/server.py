@@ -10,14 +10,19 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
 from agentic_simulation.config import AgentsConfig, AppConfig, LifeConfig, WorldConfig
-from agentic_simulation.simulation import SimulationBuilder
+from agentic_simulation.simulation import SimulationBuilder, SimulationEngine
+from agentic_simulation.simulation.checkpoint import (
+    MAX_CHECKPOINT_BYTES,
+    checkpoint_bytes,
+    restore_checkpoint,
+)
 
 from .results import ExecutionRecord, ResultStore, report_html
 
@@ -75,10 +80,18 @@ class SimulationController:
     """Run a simulation independently of connected visualization clients."""
 
     def __init__(
-        self, config: AppConfig, results_directory: Path | None = None
+        self,
+        config: AppConfig,
+        results_directory: Path | None = None,
+        *,
+        initial_simulation: SimulationEngine | None = None,
     ) -> None:
         self._config = config
-        self._simulation = SimulationBuilder.build(config)
+        if initial_simulation is not None and initial_simulation.config != config:
+            raise ValueError(
+                "restored simulation configuration does not match server configuration"
+            )
+        self._simulation = initial_simulation or SimulationBuilder.build(config)
         self._ticks_per_second = config.visualization.ticks_per_second
         self._broadcast_every = config.visualization.broadcast_every_ticks
         self._lock = asyncio.Lock()
@@ -98,6 +111,49 @@ class SimulationController:
         self._latest_result: dict[str, Any] | None = None
         self._completed_result_id: str | None = None
         self._results_error: str | None = None
+        self._checkpoint_origin: dict[str, Any] | None = (
+            {"tick": self._simulation.tick, "state_hash": self._simulation.state_hash()}
+            if initial_simulation is not None
+            else None
+        )
+
+    async def checkpoint(self) -> tuple[bytes, int]:
+        async with self._lock:
+            self._require_healthy()
+            if self.running:
+                raise RuntimeError("Pause the current run before saving a checkpoint.")
+            return checkpoint_bytes(self._simulation), self._simulation.tick
+
+    async def restore(self, data: bytes, expected_run_id: str) -> dict[str, Any]:
+        async with self._lock:
+            if expected_run_id != self._run_id:
+                raise RuntimeError("The active run changed. Review it and retry.")
+            if self.running:
+                raise RuntimeError(
+                    "Pause the current run before restoring a checkpoint."
+                )
+            simulation = restore_checkpoint(data)
+            self._simulation = simulation
+            self._config = simulation.config
+            self._ticks_per_second = simulation.config.visualization.ticks_per_second
+            self._broadcast_every = (
+                simulation.config.visualization.broadcast_every_ticks
+            )
+            self._target_tick = None
+            self._horizon = 1000
+            self._last_tick_ms = 0.0
+            self._error = None
+            self._results_error = None
+            self._result_frame = simulation.visualization_update()
+            self._checkpoint_origin = {
+                "tick": simulation.tick,
+                "state_hash": simulation.state_hash(),
+            }
+            self._run_id = str(uuid4())
+            self._revision += 1
+            frame = self._decorate(simulation.visualization_frame())
+        self._publish(frame)
+        return frame
 
     @property
     def running(self) -> bool:
@@ -155,6 +211,7 @@ class SimulationController:
             self._simulation = simulation
             self._result_frame = simulation.visualization_update()
             self._run_id = str(uuid4())
+            self._checkpoint_origin = None
             self._revision += 1
             frame = self._decorate(self._simulation.visualization_frame())
         self._publish(frame)
@@ -189,6 +246,7 @@ class SimulationController:
             self._last_tick_ms = 0.0
             self._run_id = record.initial["run_id"]
             self._record = record
+            self._checkpoint_origin = None
             self._result_frame = simulation.visualization_update()
             self._results_error = None
             self._revision += 1
@@ -313,6 +371,7 @@ class SimulationController:
             self._simulation.visualization_update(),
             target_tick,
             self._simulation.state_hash(),
+            checkpoint_origin=self._checkpoint_origin,
         )
         self._results_error = None
 
@@ -360,6 +419,7 @@ class SimulationController:
             "completed_result_id": self._completed_result_id,
             "latest_result": self._latest_result,
             "results_error": self._results_error,
+            "checkpoint_origin": self._checkpoint_origin,
         }
 
     def _decorate(self, frame: dict[str, Any]) -> dict[str, Any]:
@@ -410,10 +470,17 @@ class SimulationController:
 
 
 def create_app(
-    config: AppConfig | None = None, *, results_directory: Path = Path("runs/browser")
+    config: AppConfig | None = None,
+    *,
+    results_directory: Path = Path("runs/browser"),
+    initial_simulation: SimulationEngine | None = None,
 ) -> FastAPI:
-    settings = config or AppConfig()
-    controller = SimulationController(settings, results_directory)
+    settings = config or (
+        initial_simulation.config if initial_simulation else AppConfig()
+    )
+    controller = SimulationController(
+        settings, results_directory, initial_simulation=initial_simulation
+    )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -484,6 +551,40 @@ def create_app(
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
         return await controller.status()
+
+    @app.get("/api/checkpoint")
+    async def download_checkpoint() -> Response:
+        try:
+            data, tick = await controller.checkpoint()
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return Response(
+            data,
+            media_type="application/octet-stream",
+            headers={
+                "Content-Disposition": f'attachment; filename="tick-{tick}.alife"'
+            },
+        )
+
+    @app.post("/api/control/restore-checkpoint")
+    async def upload_checkpoint(
+        request: Request, expected_run_id: str
+    ) -> dict[str, Any]:
+        data = bytearray()
+        async for chunk in request.stream():
+            if len(data) + len(chunk) > MAX_CHECKPOINT_BYTES:
+                raise HTTPException(
+                    status_code=413, detail="Checkpoint exceeds 64 MiB."
+                )
+            data.extend(chunk)
+        try:
+            return await controller.restore(bytes(data), expected_run_id)
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
 
     @app.post("/api/control/run")
     async def run(request: RunRequest) -> dict[str, Any]:

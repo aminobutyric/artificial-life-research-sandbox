@@ -240,6 +240,8 @@ class ExecutionRecord:
         frame: dict[str, Any],
         target_tick: int | None,
         initial_hash: str,
+        *,
+        checkpoint_origin: dict[str, Any] | None = None,
     ) -> None:
         self.result_id = str(uuid4())
         self.store = store
@@ -272,6 +274,7 @@ class ExecutionRecord:
             "sample_every": self.sample_every,
             "software": source_version(),
             "initial_state_hash": initial_hash,
+            "checkpoint_origin": checkpoint_origin,
         }
         if store:
             store.path(self.result_id).mkdir(parents=True, exist_ok=False)

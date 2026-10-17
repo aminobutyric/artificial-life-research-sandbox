@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>World Observatory</title>
     <link rel="icon" href="data:,">
-    <link rel="stylesheet" href="/static/styles.css?v=results-1">
+    <link rel="stylesheet" href="/static/styles.css?v=checkpoints-1">
   </head>
   <body>
     <main class="shell">
@@ -92,6 +92,17 @@
         </div>
 
         <aside>
+          <section class="card checkpoint-panel">
+            <h2>Simulation checkpoints</h2>
+            <p class="muted">Pause to save or restore the complete simulation. Restoring replaces the current world and starts paused at the saved tick.</p>
+            <button id="save-checkpoint" class="secondary" disabled>Download checkpoint</button>
+            <form id="restore-checkpoint-form">
+              <label for="checkpoint-file">Full checkpoint (.alife)</label>
+              <input id="checkpoint-file" type="file" accept=".alife" required disabled>
+              <button id="restore-checkpoint" class="secondary" disabled>Restore checkpoint</button>
+            </form>
+            <p id="checkpoint-status" class="muted" role="status"></p>
+          </section>
           <section class="card">
             <h2>Saved experiment results</h2>
             <label for="saved-result">Execution history</label>
@@ -177,6 +188,6 @@
         <a id="result-download" download>Download results (.zip)</a>
       </div>
     </dialog>
-    <script src="/static/app.js?v=results-1"></script>
+    <script src="/static/app.js?v=checkpoints-1"></script>
   </body>
 </html>

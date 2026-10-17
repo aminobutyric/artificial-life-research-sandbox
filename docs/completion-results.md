@@ -90,9 +90,11 @@ samples; unavailable endpoint measures remain unavailable. A truncated final
 metrics append from an unclean stop can be ignored only for an unfinished
 record. The API does not promote unfinished records to completed results.
 
-These are observational results, not full simulation checkpoints. Continuing
-from a saved result is not supported until backlog item 3. Browser artifacts
-are distinct from the existing predefined food-regeneration batch experiment.
+These are observational results, not full simulation checkpoints. Use the
+separate [.alife checkpoint interface](checkpoints.md) to save and continue
+simulation state. A continued result segment records `checkpoint_origin` in
+its manifest. Browser artifacts are distinct from the existing predefined
+food-regeneration batch experiment.
 
 ## Read-only endpoints
 

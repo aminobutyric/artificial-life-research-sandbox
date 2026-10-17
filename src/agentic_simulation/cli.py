@@ -13,7 +13,11 @@ from pathlib import Path
 import uvicorn
 
 from agentic_simulation.config import load_config
-from agentic_simulation.simulation import SimulationBuilder
+from agentic_simulation.simulation import (
+    SimulationBuilder,
+    load_checkpoint,
+    save_checkpoint,
+)
 from agentic_simulation.visualization import create_app
 from agentic_simulation.world import WorldBuilder
 
@@ -23,14 +27,16 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--config",
         type=Path,
-        default=Path("experiments/world.yaml"),
-        help="YAML configuration path",
+        help="YAML configuration path (default: experiments/world.yaml)",
     )
     commands = parser.add_subparsers(dest="command", required=True)
 
     serve = commands.add_parser("serve", help="serve the live world visualization")
     serve.add_argument("--host", help="override the configured bind address")
     serve.add_argument("--port", type=int, help="override the configured port")
+    serve.add_argument(
+        "--from-checkpoint", type=Path, help="restore a full .alife checkpoint, paused"
+    )
     serve.add_argument(
         "--results-dir",
         type=Path,
@@ -48,6 +54,14 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--ticks", type=int, required=True)
     run.add_argument("--events", type=Path, help="write a new buffered JSONL event log")
     run.add_argument(
+        "--from-checkpoint", type=Path, help="continue from a full .alife checkpoint"
+    )
+    run.add_argument(
+        "--checkpoint-out",
+        type=Path,
+        help="save a full .alife checkpoint at the final tick",
+    )
+    run.add_argument(
         "--progress-every",
         type=int,
         default=50,
@@ -58,8 +72,20 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
-    config = load_config(args.config)
+    parser = _parser()
+    args = parser.parse_args(argv)
+    source_checkpoint = getattr(args, "from_checkpoint", None)
+    if source_checkpoint and args.config:
+        parser.error(
+            "--config cannot be combined with --from-checkpoint; "
+            "the checkpoint contains its configuration"
+        )
+    restored = load_checkpoint(source_checkpoint) if source_checkpoint else None
+    config = (
+        restored.config
+        if restored
+        else load_config(args.config or Path("experiments/world.yaml"))
+    )
 
     if args.command == "serve":
         host = args.host or config.visualization.host
@@ -72,7 +98,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             flush=True,
         )
         uvicorn.run(
-            create_app(config, results_directory=args.results_dir), host=host, port=port
+            create_app(
+                config, results_directory=args.results_dir, initial_simulation=restored
+            ),
+            host=host,
+            port=port,
         )
         return 0
 
@@ -81,15 +111,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "run":
         if args.progress_every < 0:
             raise SystemExit("--progress-every cannot be negative")
+        browser_command = (
+            f"alife serve --from-checkpoint {source_checkpoint}"
+            if source_checkpoint
+            else f"alife --config {args.config or 'experiments/world.yaml'} serve"
+        )
         if args.progress_every:
             print(
                 f"Starting headless simulation for {args.ticks} ticks.\n"
-                "For the browser visualization, use 'alife --config "
-                f"{args.config} serve'.",
+                f"For the browser visualization, use '{browser_command}'.",
                 file=sys.stderr,
                 flush=True,
             )
-        simulation = SimulationBuilder.build(config)
+        simulation = restored or SimulationBuilder.build(config)
+        start_tick = simulation.tick
         with (
             args.events.open("x", encoding="utf-8") if args.events else nullcontext()
         ) as log:
@@ -126,17 +161,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                         + "\n"
                     )
                 if args.progress_every and (
-                    simulation.tick % args.progress_every == 0
-                    or simulation.tick == args.ticks
+                    (simulation.tick - start_tick) % args.progress_every == 0
+                    or simulation.tick == start_tick + args.ticks
                 ):
                     print(
-                        f"tick {simulation.tick}/{args.ticks} · "
+                        f"tick {simulation.tick}/{start_tick + args.ticks} · "
                         f"population {len(simulation.agents)} · "
                         f"births {simulation.lifecycle.births} · "
                         f"deaths {simulation.lifecycle.deaths}",
                         file=sys.stderr,
                         flush=True,
                     )
+            if args.checkpoint_out:
+                save_checkpoint(simulation, args.checkpoint_out)
             if log:
                 log.write(
                     json.dumps(

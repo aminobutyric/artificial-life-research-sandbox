@@ -2,7 +2,7 @@
 
 This is the agreed implementation order for the next milestone: agents that
 remember and adapt to a changing world. Complete and verify each item before
-starting the next. Items 1–2 are implemented and verified; items 3–5 are planned.
+starting the next. Items 1–3 are implemented and verified; items 4–5 are planned.
 
 ## Shared decisions
 
@@ -64,7 +64,9 @@ Completion criteria:
 
 ## 3. Full simulation checkpoints
 
-Status: planned. Dependencies: items 1 and 2.
+Status: complete. Dependencies: items 1 and 2.
+
+Implemented behavior and format: [Full simulation checkpoints](checkpoints.md).
 
 Extend environment-only snapshots to save and restore the complete simulation.
 

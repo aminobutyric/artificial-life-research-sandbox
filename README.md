@@ -63,6 +63,18 @@ full HTML report and ZIP downloads. Results persist under `runs/browser/`;
 manual pauses save interrupted executions. See
 [completion summaries and saved results](docs/completion-results.md).
 
+The **Simulation checkpoints** panel downloads and restores complete `.alife`
+states while paused. For headless save and continuation:
+
+```console
+uv run alife --config experiments/world.yaml run --ticks 500 --checkpoint-out state-500.alife
+uv run alife run --from-checkpoint state-500.alife --ticks 500 --checkpoint-out state-1000.alife
+```
+
+Open a saved simulation with `uv run alife serve --from-checkpoint state-500.alife`.
+The checkpoint supplies its configuration; `--ticks` advances additional ticks.
+See [full simulation checkpoints](docs/checkpoints.md) for format and restore rules.
+
 - **Play** advances continuously; **Pause** stops after the current tick.
 - **Run & pause** advances by the entered number of additional ticks, then stops.
   Enter 1,000 here to watch a 1,000-tick experiment in the browser.

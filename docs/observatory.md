@@ -73,5 +73,11 @@ with a population trajectory, experiment settings, and outcome metrics. Saved
 history offers summary reopening, a full report, and ZIP downloads. Manual pause
 saves an interrupted segment without issuing a completion dialog.
 
-Full simulation checkpoints, replay, memory, and agent communication remain
-future phases.
+## Checkpoints
+
+The **Simulation checkpoints** panel downloads and restores full `.alife`
+checkpoints while paused. Restoration preserves the simulation tick and state,
+clears selection, and starts paused. See [checkpoint semantics](checkpoints.md)
+for continuation, versioning, and the distinction from result archives.
+
+Replay, memory, and agent communication remain future phases.

@@ -5,15 +5,44 @@ from __future__ import annotations
 import hashlib
 import heapq
 import json
+from dataclasses import asdict
 from math import isfinite
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
+from pydantic import Field
 
+from agentic_simulation.config import StrictModel
 from agentic_simulation.world import Position
 
 from .genome import Genome
 from .models import AgentView
+
+
+class SavedTrait(StrictModel):
+    id: int = Field(ge=1, strict=True)
+    genome: Genome
+    generation: int = Field(ge=0, strict=True)
+    parent_id: int | None = Field(default=None, ge=1, strict=True)
+    last_reproduction: int = Field(ge=-1, strict=True)
+
+
+class SavedAgentState(StrictModel):
+    next_id: int = Field(ge=1, le=2**63 - 1, strict=True)
+    traits: tuple[SavedTrait, ...]
+
+
+AGENT_ARRAY_DTYPES = {
+    "ids": np.dtype("int64"),
+    "x": np.dtype("int32"),
+    "y": np.dtype("int32"),
+    "health": np.dtype("float64"),
+    "energy": np.dtype("float64"),
+    "age": np.dtype("int64"),
+    "vision": np.dtype("float64"),
+    "alive": np.dtype("bool"),
+}
 
 
 class AgentStore:
@@ -170,6 +199,78 @@ class AgentStore:
         ):
             digest.update(array[: self._size].tobytes(order="C"))
         return digest.hexdigest()
+
+    def checkpoint_state(self) -> tuple[dict[str, Any], dict[str, NDArray[Any]]]:
+        """Copy all used slots, including dead-slot bytes needed by the state hash."""
+        metadata = {
+            "next_id": self.next_id,
+            "traits": [
+                {
+                    "id": a.id,
+                    "genome": asdict(a.genome),
+                    "generation": a.generation,
+                    "parent_id": a.parent_id,
+                    "last_reproduction": a.last_reproduction,
+                }
+                for a in self.living()
+            ],
+        }
+        arrays = {
+            name: getattr(self, f"_{name}")[: self._size].copy()
+            for name in AGENT_ARRAY_DTYPES
+        }
+        return metadata, arrays
+
+    @classmethod
+    def from_checkpoint(
+        cls,
+        metadata: dict[str, Any],
+        arrays: dict[str, NDArray[Any]],
+    ) -> AgentStore:
+        state = SavedAgentState.model_validate(metadata)
+        if set(arrays) != set(AGENT_ARRAY_DTYPES):
+            raise ValueError("checkpoint agent arrays are missing or unexpected")
+        ids = arrays["ids"]
+        if ids.ndim != 1:
+            raise ValueError("checkpoint agent arrays must be one-dimensional")
+        size = len(ids)
+        for name, dtype in AGENT_ARRAY_DTYPES.items():
+            array = arrays[name]
+            if array.shape != (size,) or array.dtype != dtype:
+                raise ValueError(f"invalid checkpoint agent array shape/dtype: {name}")
+            if not np.isfinite(array).all():
+                raise ValueError(f"checkpoint agent array must be finite: {name}")
+        if size and (np.min(ids) < 1 or state.next_id <= int(np.max(ids))):
+            raise ValueError("checkpoint agent ID allocator would reuse an ID")
+        if len(np.unique(ids)) != size:
+            raise ValueError("duplicate agent IDs in checkpoint")
+        if any(
+            np.any(arrays[name] < 0) for name in ("age", "health", "energy", "vision")
+        ):
+            raise ValueError("negative checkpoint agent state")
+        alive_ids = set(map(int, ids[arrays["alive"]]))
+        if (
+            len(state.traits) != len(alive_ids)
+            or {a.id for a in state.traits} != alive_ids
+        ):
+            raise ValueError("checkpoint traits do not match living agents")
+        for trait in state.traits:
+            if trait.parent_id is not None and trait.parent_id >= trait.id:
+                raise ValueError("checkpoint parent ID must precede child ID")
+        store = cls(initial_capacity=size)
+        store._size = size
+        store._next_id = state.next_id
+        store._alive_count = len(alive_ids)
+        for name in AGENT_ARRAY_DTYPES:
+            getattr(store, f"_{name}")[:size] = arrays[name]
+        store._index_by_id = {int(ids[i]): i for i in range(size) if arrays["alive"][i]}
+        store._free = [int(i) for i in np.flatnonzero(~arrays["alive"])]
+        heapq.heapify(store._free)
+        store._traits = {
+            a.id: (a.genome, a.generation, a.parent_id, a.last_reproduction)
+            for a in state.traits
+        }
+        return store
 
     def _view_at(self, index: int) -> AgentView:
         genome, generation, parent, last = self._traits[int(self._ids[index])]

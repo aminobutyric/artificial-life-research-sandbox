@@ -1,6 +1,7 @@
 """An interpretable foraging policy using only local observations."""
 
 from collections import deque
+from typing import Any
 
 from agentic_simulation.actions import ActionIntent, ActionType
 from agentic_simulation.agents import Observation
@@ -11,12 +12,17 @@ from .base import DecisionContext
 
 
 class GeneticBrain:
+    state_version = 1
+
     def __init__(self, life: LifeConfig) -> None:
         self._life = life
 
     @property
     def name(self) -> str:
         return "genetic"
+
+    def checkpoint_state(self) -> dict[str, Any]:
+        return {"life": self._life.model_dump(mode="json")}
 
     def decide(
         self, observation: Observation, context: DecisionContext

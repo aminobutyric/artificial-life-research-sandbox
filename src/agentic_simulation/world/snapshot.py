@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +40,11 @@ class WorldSnapshot:
             raise ValueError("snapshot path must end with .npz")
         if output.exists():
             raise FileExistsError(f"snapshot already exists: {output}")
+        with output.open("xb") as stream:
+            stream.write(self.to_bytes())
+
+    def to_bytes(self) -> bytes:
+        """Encode the existing environment-only format without temporary files."""
         metadata = {
             "snapshot_schema_version": SNAPSHOT_SCHEMA_VERSION,
             "config": self.config.model_dump(mode="json"),
@@ -58,6 +64,7 @@ class WorldSnapshot:
                 for resource in self.resources
             ],
         }
+        output = BytesIO()
         np.savez_compressed(
             output,
             metadata=np.array(json.dumps(metadata, default=_json_default)),
@@ -68,11 +75,20 @@ class WorldSnapshot:
             moisture=self.layers.moisture,
             fertility=self.layers.fertility,
         )
+        return output.getvalue()
 
     @classmethod
     def load(cls, path: str | Path) -> WorldSnapshot:
-        with np.load(Path(path), allow_pickle=False) as archive:
+        return cls.from_bytes(Path(path).read_bytes())
+
+    @classmethod
+    def from_bytes(cls, data: bytes) -> WorldSnapshot:
+        with np.load(BytesIO(data), allow_pickle=False) as archive:
+            if "metadata" not in archive:
+                raise ValueError("not an environment-only world snapshot")
             metadata = json.loads(str(archive["metadata"].item()))
+            if not isinstance(metadata, dict):
+                raise ValueError("world snapshot metadata must be an object")
             if metadata.get("snapshot_schema_version") != SNAPSHOT_SCHEMA_VERSION:
                 raise ValueError("unsupported world snapshot schema")
             config = WorldConfig.model_validate(metadata["config"])

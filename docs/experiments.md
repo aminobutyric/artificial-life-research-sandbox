@@ -34,9 +34,12 @@ the commit and whether its worktree was dirty.
 - Results are scoped to the committed model and dependency versions. A changed
   implementation starts a new experiment version.
 
-The current agent state cannot be checkpointed or resumed. An interrupted run
-must therefore be restarted from tick zero. `generate` snapshots contain the
-environment only and are not valid experiment checkpoints.
+Full agent state can be saved and resumed using [.alife checkpoints](checkpoints.md).
+Restoration creates a new execution segment with checkpoint provenance; any use
+in a defined study must follow its predefined continuation/failure rules. The
+food-regeneration runner still restarts its complete matrix after technical
+failure. `generate` snapshots contain the environment only and are not valid
+agent checkpoints.
 
 ## Artifact layout
 

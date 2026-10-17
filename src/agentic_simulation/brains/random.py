@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from agentic_simulation.actions import ActionIntent, ActionType
 from agentic_simulation.agents import Observation
 
@@ -9,6 +11,8 @@ from .base import DecisionContext
 
 
 class RandomBrain:
+    state_version = 1
+
     def __init__(self, idle_probability: float) -> None:
         if not 0.0 <= idle_probability <= 1.0:
             raise ValueError("idle probability must be between zero and one")
@@ -17,6 +21,9 @@ class RandomBrain:
     @property
     def name(self) -> str:
         return "random"
+
+    def checkpoint_state(self) -> dict[str, Any]:
+        return {"idle_probability": self._idle_probability}
 
     def decide(
         self, observation: Observation, context: DecisionContext

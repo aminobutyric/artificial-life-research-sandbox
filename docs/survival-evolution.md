@@ -85,7 +85,8 @@ implementation. No histories accumulate in memory during headless execution.
 
 `generate --output world.npz` still saves only a **world** snapshot. Full
 simulation checkpoints (agents, lineage, brains, counters, and allocation state)
-remain a future phase. Do not use a world snapshot as an agent-run checkpoint.
+are available through the separate [.alife format](checkpoints.md). Do not use
+a world snapshot as an agent-run checkpoint.
 Determinism is scoped to matching code and dependency versions. Visualization
 settings are excluded from the simulation state hash.
 

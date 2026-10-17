@@ -62,6 +62,11 @@ class SimulationEngine:
     def tick(self) -> int:
         return self.world.tick
 
+    @property
+    def decision_seed(self) -> int:
+        """Seed used to derive every per-tick, per-agent decision RNG."""
+        return self._brain_system.seed
+
     def advance(self) -> TickReport:
         world_events = self.world.advance()
         self.agents.age_all()

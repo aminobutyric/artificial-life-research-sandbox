@@ -354,7 +354,13 @@ function acceptMessage(message) {
     coreCatalog = message.core_catalog;
     document.querySelector("#active-configuration").textContent = JSON.stringify(activeConfiguration, null, 2);
     const core = coreCatalog.find(item => item.id === activeConfiguration.agents.brain);
-    document.querySelector("#active-setup").textContent = `${core.label} · seed ${control.seed} · ${activeConfiguration.agents.initial_population} founders · ${control.horizon} ticks. Settings are fixed for this run.`;
+    const horizonLabel = control.checkpoint_origin
+      ? `restored at tick ${control.checkpoint_origin.tick}` : `${control.horizon} ticks`;
+    document.querySelector("#active-setup").textContent = `${core.label} · seed ${control.seed} · ${activeConfiguration.agents.initial_population} founders · ${horizonLabel}. Settings are fixed for this run.`;
+    if (runChanged) {
+      document.querySelector("#checkpoint-status").textContent = control.checkpoint_origin
+        ? `Restored at tick ${control.checkpoint_origin.tick}. Use Run & pause to continue for additional ticks.` : "";
+    }
     if (runChanged || !document.querySelector("#setup-inputs input")) resetSetup();
   }
   if (previousError && !control.error) showError("");
@@ -434,6 +440,9 @@ function updateControls() {
   document.querySelector("#regenerate").disabled = !ready;
   document.querySelector("#setup-fields").disabled = !ready || running;
   document.querySelector("#start-experiment").disabled = !ready || running || !activeConfiguration;
+  document.querySelector("#save-checkpoint").disabled = !ready || running || failed;
+  document.querySelector("#checkpoint-file").disabled = !ready || running;
+  document.querySelector("#restore-checkpoint").disabled = !ready || running;
   document.querySelector("#run-state").textContent = !online ? "Disconnected" : failed ? "Stopped · error" : control?.results_error ? "Stopped · results error" : running ? "Running" : "Paused";
   const details = document.querySelector("#run-details");
   if (!online) {
@@ -489,6 +498,62 @@ async function command(name, body) {
 }
 
 document.querySelector("#play").addEventListener("click", () => command("play"));
+async function checkpointCommand(restore) {
+  if (commandPending || !online || control.running) return;
+  const file = document.querySelector("#checkpoint-file").files[0];
+  if (restore && !file) return;
+  const notice = document.querySelector("#checkpoint-status");
+  if (restore && file.size > 64 * 1024 * 1024) {
+    notice.textContent = "Checkpoint exceeds the 64 MiB limit.";
+    return;
+  }
+  const epoch = connectionEpoch;
+  const expectedRun = runId;
+  commandPending = true;
+  notice.textContent = restore ? "Validating checkpoint…" : "Preparing checkpoint…";
+  updateControls();
+  try {
+    const response = await fetch(restore
+      ? `/api/control/restore-checkpoint?expected_run_id=${encodeURIComponent(expectedRun)}`
+      : "/api/checkpoint", {
+      method: restore ? "POST" : "GET",
+      body: restore ? file : undefined,
+      headers: restore ? { "Content-Type": "application/octet-stream" } : {},
+      signal: AbortSignal.timeout(60000),
+    });
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(typeof data.detail === "string" ? data.detail : "Invalid checkpoint.");
+    }
+    if (restore) {
+      const data = await response.json();
+      if (epoch === connectionEpoch) {
+        acceptMessage(data);
+        notice.textContent = `Restored at tick ${data.tick}, paused. Use Run & pause to continue for additional ticks.`;
+        document.querySelector("#checkpoint-file").value = "";
+      }
+    } else {
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = response.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1] || "simulation.alife";
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      notice.textContent = "Checkpoint download prepared. Keep the .alife file to restore this state later.";
+    }
+  } catch (error) {
+    if (epoch === connectionEpoch) notice.textContent = error.message;
+  } finally {
+    commandPending = false;
+    updateControls();
+  }
+}
+document.querySelector("#save-checkpoint").addEventListener("click", () => checkpointCommand(false));
+document.querySelector("#restore-checkpoint-form").addEventListener("submit", event => {
+  event.preventDefault();
+  checkpointCommand(true);
+});
 document.querySelector("#close-result").addEventListener("click", () => document.querySelector("#result-dialog").close());
 document.querySelector("#refresh-results").addEventListener("click", refreshResults);
 document.querySelector("#open-result").addEventListener("click", () => {
